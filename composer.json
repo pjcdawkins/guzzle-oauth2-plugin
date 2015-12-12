@@ -1,22 +1,14 @@
 {
     "name": "commerceguys/guzzle-oauth2-plugin",
-    "description": "An OAuth2 plugin (subscriber) for Guzzle",
+    "description": "An OAuth2 plugin (middleware) for Guzzle",
     "license": "MIT",
     "require": {
-        "guzzlehttp/guzzle": "~5.0",
-        "firebase/php-jwt": "~2.0"
+        "guzzlehttp/guzzle": "^6.0",
+        "league/oauth2-client": "^1.1"
     },
     "autoload": {
         "psr-4": {
             "CommerceGuys\\Guzzle\\Oauth2\\": "src"
-        }
-    },
-    "require-dev": {
-        "phpunit/phpunit": "~4.5"
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "CommerceGuys\\Guzzle\\Oauth2\\Tests\\": "tests"
         }
     },
     "authors": [
@@ -29,8 +21,5 @@
         {
             "name": "Patrick Dawkins"
         }
-    ],
-    "config": {
-        "bin-dir": "bin"
-    }
+    ]
 }
