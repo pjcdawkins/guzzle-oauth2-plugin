@@ -22,6 +22,9 @@ class Oauth2Subscriber implements SubscriberInterface
     /** @var RefreshTokenGrantTypeInterface */
     protected $refreshTokenGrantType;
 
+    /** @var callable|null */
+    protected $tokenSave;
+
     /**
      * Create a new Oauth2 subscriber.
      *
@@ -55,8 +58,11 @@ class Oauth2Subscriber implements SubscriberInterface
             $request = $event->getRequest();
             if ($request->getConfig()->get('auth') == 'oauth2' && !$request->getConfig()->get('retried')) {
                 if ($token = $this->acquireAccessToken()) {
+                    // Save the new token.
                     $this->accessToken = $token;
                     $this->refreshToken = $token->getRefreshToken();
+
+                    // Retry the request.
                     $request->getConfig()->set('retried', true);
                     $event->intercept($event->getClient()->send($request));
                 }
@@ -86,6 +92,10 @@ class Oauth2Subscriber implements SubscriberInterface
         if (!$accessToken && $this->grantType) {
             // Get a new access token.
             $accessToken = $this->grantType->getToken();
+        }
+
+        if ($accessToken !== null && is_callable($this->tokenSave)) {
+            call_user_func($this->tokenSave, $accessToken);
         }
 
         return $accessToken ?: null;
@@ -173,5 +183,17 @@ class Oauth2Subscriber implements SubscriberInterface
             throw new \InvalidArgumentException('Invalid refresh token');
         }
         $this->refreshToken = $refreshToken;
+    }
+
+    /**
+     * Set a callback that will save a token whenever a new one is acquired.
+     *
+     * @param callable $tokenSave
+     *   A callback accepting one argument (the AccessToken) that will save a
+     *   token.
+     */
+    public function setTokenSaveCallback(callable $tokenSave)
+    {
+        $this->tokenSave = $tokenSave;
     }
 }
