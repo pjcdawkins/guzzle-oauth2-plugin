@@ -8,6 +8,7 @@ use GuzzleHttp\Event\BeforeEvent;
 use GuzzleHttp\Event\ErrorEvent;
 use GuzzleHttp\Event\RequestEvents;
 use GuzzleHttp\Event\SubscriberInterface;
+use GuzzleHttp\Exception\BadResponseException;
 
 class Oauth2Subscriber implements SubscriberInterface
 {
@@ -24,6 +25,9 @@ class Oauth2Subscriber implements SubscriberInterface
 
     /** @var callable|null */
     protected $tokenSave;
+
+    /** @var callable|null */
+    protected $onRefreshError;
 
     /**
      * Create a new Oauth2 subscriber.
@@ -85,7 +89,17 @@ class Oauth2Subscriber implements SubscriberInterface
                 $this->refreshTokenGrantType->setRefreshToken($this->refreshToken->getToken());
             }
             if ($this->refreshTokenGrantType->hasRefreshToken()) {
-                $accessToken = $this->refreshTokenGrantType->getToken();
+                try {
+                    $accessToken = $this->refreshTokenGrantType->getToken();
+                } catch (BadResponseException $e) {
+                    if (isset($this->onRefreshError)) {
+                        $accessToken = call_user_func($this->onRefreshError, $e);
+                        if ($accessToken) {
+                            return $accessToken;
+                        }
+                    }
+                    throw $e;
+                }
             }
         }
 
@@ -195,5 +209,17 @@ class Oauth2Subscriber implements SubscriberInterface
     public function setTokenSaveCallback(callable $tokenSave)
     {
         $this->tokenSave = $tokenSave;
+    }
+
+    /**
+     * Set a callback that will react to a refresh token error.
+     *
+     * @param callable $callback
+     *   A callback which accepts one argument, the BadResponseException, and
+     *   returns an AccessToken or null.
+     */
+    public function setOnRefreshError(callable $callback)
+    {
+      $this->onRefreshError = $callback;
     }
 }
