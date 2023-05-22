@@ -27,6 +27,12 @@ class Oauth2Subscriber implements SubscriberInterface
     protected $tokenSave;
 
     /** @var callable|null */
+    protected $onRefreshStart;
+
+    /** @var callable|null */
+    protected $onRefreshEnd;
+
+    /** @var callable|null */
     protected $onRefreshError;
 
     /**
@@ -85,11 +91,16 @@ class Oauth2Subscriber implements SubscriberInterface
 
         if ($this->refreshTokenGrantType) {
             // Get an access token using the stored refresh token.
+            $currentRefreshToken = null;
             if ($this->refreshToken) {
-                $this->refreshTokenGrantType->setRefreshToken($this->refreshToken->getToken());
+                $currentRefreshToken = $this->refreshToken->getToken();
+                $this->refreshTokenGrantType->setRefreshToken($currentRefreshToken);
             }
             if ($this->refreshTokenGrantType->hasRefreshToken()) {
                 try {
+                    if (isset($this->onRefreshStart)) {
+                        call_user_func($this->onRefreshStart, $currentRefreshToken);
+                    }
                     $accessToken = $this->refreshTokenGrantType->getToken();
                 } catch (BadResponseException $e) {
                     if (isset($this->onRefreshError)) {
@@ -99,6 +110,10 @@ class Oauth2Subscriber implements SubscriberInterface
                         }
                     }
                     throw $e;
+                } finally {
+                    if (isset($this->onRefreshEnd)) {
+                        call_user_func($this->onRefreshEnd, $currentRefreshToken);
+                    }
                 }
             }
         }
@@ -209,6 +224,26 @@ class Oauth2Subscriber implements SubscriberInterface
     public function setTokenSaveCallback(callable $tokenSave)
     {
         $this->tokenSave = $tokenSave;
+    }
+
+    /**
+     * @param callable $callback
+     *   A callback which accepts 1 argument, the refresh token being used if
+     *   available (a string or null).
+     */
+    public function setOnRefreshStart(callable $callback)
+    {
+        $this->onRefreshStart = $callback;
+    }
+
+    /**
+     * @param callable $callback
+     *   A callback which accepts 1 argument, the refresh token which was used
+     *   if available (a string or null).
+     */
+    public function setOnRefreshEnd(callable $callback)
+    {
+        $this->onRefreshEnd = $callback;
     }
 
     /**
