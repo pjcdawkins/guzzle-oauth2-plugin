@@ -99,7 +99,10 @@ class Oauth2Subscriber implements SubscriberInterface
             if ($this->refreshTokenGrantType->hasRefreshToken()) {
                 try {
                     if (isset($this->onRefreshStart)) {
-                        call_user_func($this->onRefreshStart, $currentRefreshToken);
+                        $result = call_user_func($this->onRefreshStart, $currentRefreshToken);
+                        if ($result instanceof AccessToken) {
+                            return $result;
+                        }
                     }
                     $accessToken = $this->refreshTokenGrantType->getToken();
                 } catch (BadResponseException $e) {
