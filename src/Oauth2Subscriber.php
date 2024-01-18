@@ -9,6 +9,7 @@ use GuzzleHttp\Event\ErrorEvent;
 use GuzzleHttp\Event\RequestEvents;
 use GuzzleHttp\Event\SubscriberInterface;
 use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Message\ResponseInterface;
 
 class Oauth2Subscriber implements SubscriberInterface
 {
@@ -34,6 +35,9 @@ class Oauth2Subscriber implements SubscriberInterface
 
     /** @var callable|null */
     protected $onRefreshError;
+
+    /** @var callable|null */
+    protected $onStepUpAuthResponse;
 
     /**
      * Create a new Oauth2 subscriber.
@@ -67,7 +71,11 @@ class Oauth2Subscriber implements SubscriberInterface
         if ($response && 401 == $response->getStatusCode()) {
             $request = $event->getRequest();
             if ($request->getConfig()->get('auth') == 'oauth2' && !$request->getConfig()->get('retried')) {
-                if ($token = $this->acquireAccessToken()) {
+                if ($event->getResponse() && ($params = $this->parseStepUpAuthenticationResponse($response)) !== false) {
+                    if (isset($this->onStepUpAuthResponse)) {
+                        call_user_func($this->onStepUpAuthResponse, $params);
+                    }
+                } elseif ($token = $this->acquireAccessToken()) {
                     // Save the new token.
                     $this->accessToken = $token;
                     $this->refreshToken = $token->getRefreshToken();
@@ -78,6 +86,31 @@ class Oauth2Subscriber implements SubscriberInterface
                 }
             }
         }
+    }
+
+    /**
+     * Parses a step-up authentication response (RFC 9470).
+     *
+     * @param ResponseInterface $response
+     *
+     * @return false|array{acr_values: string[], max_age: ?int}
+     *     False if this is not a step-up authentication response, or an
+     *     array of auth parameters returned in the response.
+     */
+    protected function parseStepUpAuthenticationResponse(ResponseInterface $response)
+    {
+        $authHeader = $response->getHeader('WWW-Authenticate');
+        if (stripos($authHeader, 'Bearer') !== false && strpos($authHeader, 'insufficient_user_authentication') !== false) {
+            $parameters = ['acr_values' => [], 'max_age' => null];
+            if (preg_match('#acr_values=("[^"]*"|[a-z0-9/+~_.-]*)#', $authHeader, $matches)) {
+                $parameters['acr_values'] = explode(' ', trim($matches[1], '" '));
+            }
+            if (preg_match('#max_age=("?[0-9]+"?)#', $authHeader, $matches)) {
+                $parameters['max_age'] = intval(trim($matches[1], '"'));
+            }
+            return $parameters;
+        }
+        return false;
     }
 
     /**
@@ -259,5 +292,18 @@ class Oauth2Subscriber implements SubscriberInterface
     public function setOnRefreshError(callable $callback)
     {
       $this->onRefreshError = $callback;
+    }
+
+    /**
+     * Set a callback that will react to a step-up authentication response (RFC 9470).
+     *
+     * @param callable $callback
+     *   A callback which accepts one argument, an array of RFC 9470 auth
+     *   parameters, containing the keys "acr_values" (an array of strings)
+     *   and "max_age" (a positive integer or null).
+     */
+    public function setOnStepUpAuthResponse(callable $callback)
+    {
+        $this->onStepUpAuthResponse = $callback;
     }
 }
