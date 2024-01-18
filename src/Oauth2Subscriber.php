@@ -232,7 +232,7 @@ class Oauth2Subscriber implements SubscriberInterface
     /**
      * @param callable $callback
      *   A callback which accepts 1 argument, the refresh token being used if
-     *   available (a string or null).
+     *   available (a string or null), and returns an AccessToken or null.
      */
     public function setOnRefreshStart(callable $callback)
     {
