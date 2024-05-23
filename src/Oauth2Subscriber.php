@@ -9,6 +9,7 @@ use GuzzleHttp\Event\ErrorEvent;
 use GuzzleHttp\Event\RequestEvents;
 use GuzzleHttp\Event\SubscriberInterface;
 use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Message\ResponseInterface;
 
 class Oauth2Subscriber implements SubscriberInterface
 {
@@ -35,6 +36,9 @@ class Oauth2Subscriber implements SubscriberInterface
     /** @var callable|null */
     protected $onRefreshError;
 
+    /** @var callable|null */
+    protected $onStepUpAuthResponse;
+
     /**
      * Create a new Oauth2 subscriber.
      *
@@ -59,25 +63,51 @@ class Oauth2Subscriber implements SubscriberInterface
     }
 
     /**
-     * @inheritdoc
+     * Respond to a request error and refresh the token if appropriate.
+     *
+     * @param ErrorEvent $event
+     *
+     * @return void
      */
     public function onError(ErrorEvent $event)
     {
+        $request = $event->getRequest();
         $response = $event->getResponse();
-        if ($response && 401 == $response->getStatusCode()) {
-            $request = $event->getRequest();
-            if ($request->getConfig()->get('auth') == 'oauth2' && !$request->getConfig()->get('retried')) {
-                if ($token = $this->acquireAccessToken()) {
-                    // Save the new token.
-                    $this->accessToken = $token;
-                    $this->refreshToken = $token->getRefreshToken();
 
-                    // Retry the request.
-                    $request->getConfig()->set('retried', true);
-                    $event->intercept($event->getClient()->send($request));
-                }
-            }
+        // Respond only to 401 errors where oauth2 authentication was enabled
+        // on the request.
+        if (!$response || $response->getStatusCode() !== 401 || $request->getConfig()->get('auth') !== 'oauth2') {
+            return;
         }
+
+        // Handle step-up authentication responses.
+        if (isset($this->onStepUpAuthResponse) && $this->isStepUpAuthenticationResponse($response)) {
+            call_user_func($this->onStepUpAuthResponse, $response);
+            return;
+        }
+
+        // Attempt to refresh the token and retry the request, once.
+        if (!$request->getConfig()->get('retried') && ($token = $this->acquireAccessToken())) {
+            // Save the new token.
+            $this->accessToken = $token;
+            $this->refreshToken = $token->getRefreshToken();
+
+            $request->getConfig()->set('retried', true);
+            $event->intercept($event->getClient()->send($request));
+        }
+    }
+
+    /**
+     * Checks for a step-up authentication response (RFC 9470).
+     *
+     * @param ResponseInterface $response
+     *
+     * @return bool
+     */
+    protected function isStepUpAuthenticationResponse(ResponseInterface $response)
+    {
+        $authHeader = $response->getHeader('WWW-Authenticate');
+        return stripos($authHeader, 'Bearer') !== false && strpos($authHeader, 'insufficient_user_authentication') !== false;
     }
 
     /**
@@ -141,7 +171,7 @@ class Oauth2Subscriber implements SubscriberInterface
     public function onBefore(BeforeEvent $event)
     {
         $request = $event->getRequest();
-        if ($request->getConfig()->get('auth') == 'oauth2') {
+        if ($request->getConfig()->get('auth') === 'oauth2') {
             $token = $this->getAccessToken();
             if ($token !== null) {
                 $request->setHeader('Authorization', 'Bearer ' . $token->getToken());
@@ -259,5 +289,17 @@ class Oauth2Subscriber implements SubscriberInterface
     public function setOnRefreshError(callable $callback)
     {
       $this->onRefreshError = $callback;
+    }
+
+    /**
+     * Set a callback that will react to a step-up authentication response (RFC 9470).
+     *
+     * @param callable $callback
+     *   A callback which accepts one argument, the response, of type:
+     *   \GuzzleHttp\Message\ResponseInterface
+     */
+    public function setOnStepUpAuthResponse(callable $callback)
+    {
+        $this->onStepUpAuthResponse = $callback;
     }
 }
