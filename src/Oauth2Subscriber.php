@@ -82,7 +82,13 @@ class Oauth2Subscriber implements SubscriberInterface
 
         // Handle step-up authentication responses.
         if (isset($this->onStepUpAuthResponse) && $this->isStepUpAuthenticationResponse($response)) {
-            call_user_func($this->onStepUpAuthResponse, $response);
+            $newToken = call_user_func($this->onStepUpAuthResponse, $response);
+            if ($newToken !== null) {
+                $this->accessToken = $newToken;
+                $this->refreshToken = $newToken->getRefreshToken();
+                $request->getConfig()->set('retried', true);
+                $event->intercept($event->getClient()->send($request));
+            }
             return;
         }
 
@@ -295,8 +301,8 @@ class Oauth2Subscriber implements SubscriberInterface
      * Set a callback that will react to a step-up authentication response (RFC 9470).
      *
      * @param callable $callback
-     *   A callback which accepts one argument, the response, of type:
-     *   \GuzzleHttp\Message\ResponseInterface
+     *   A callback which accepts one argument, the response, of type \GuzzleHttp\Message\ResponseInterface,
+     *   and returns an AccessToken or null.
      */
     public function setOnStepUpAuthResponse(callable $callback)
     {
